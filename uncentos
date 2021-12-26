@@ -1,0 +1,98 @@
+#!/bin/bash -e
+
+set -e
+set -o pipefail
+
+yum -y install podman parted gawk
+
+read bootdisk type < <(parted --list -m | awk -F: '/^\/dev/ { dev = $1 } $7 ~ /.*boot.*;/ { print dev, $5 }')
+
+if [[ -z "$bootdisk" ]]; then
+    echo "did not find boot partition"
+    exit 1
+fi
+
+echo "installing to $bootdisk (type $type)"
+
+read -r free_start free_end < <(parted -m "$bootdisk" unit s print free | { awk -F: '$5 == "free;" && int($4) > 2000000 { print $2, $3; exit 0 }'; echo; })
+
+if [[ -z "$free_end" ]]; then
+    echo "no free space"
+    exit 1
+fi
+
+name=
+if [[ "$type" = "gpt" ]]; then
+    name=newsys
+fi
+
+parted -m "$bootdisk" mkpart primary $name xfs "$free_start" "$free_end"
+
+# now search for the new partition to find its number
+
+read part_nr < <(parted  -m "$bootdisk" unit s print | awk -F: '$2 == "'"$free_start"'" { print $1 }')
+
+echo "new partition is $part_nr"
+
+part="${bootdisk}${part_nr}"
+
+mkfs -t xfs -L ubuntu "$part"
+
+mkdir /newroot
+mount -t xfs "$part" /newroot
+
+mkdir -p /
+podman run --rm -v /newroot:/newroot --privileged docker.io/ubuntu:20.04 bash -c 'apt-get update && apt-get -y install debootstrap && debootstrap --variant minbase --include ssh,systemd,systemd-sysv,ubuntu-server,dbus-user-session,python3-cffi-backend,netbase,network-manager focal /newroot'
+extra_mounts=()
+
+echo "LABEL=ubuntu / xfs defaults 0 1" >> /newroot/etc/fstab
+
+if (( $(stat --format=%d /boot) != $(stat --format=%d /) )); then
+    extra_mounts+=(boot)
+    # FIXME: add fstab entry
+else
+    cp -a /boot /newroot
+fi
+
+for d in proc sys dev "${extra_mounts[@]}"; do
+    mount --rbind "/$d" "/newroot/$d"
+done 
+
+while IFS=: read group x gid users; do
+    if (( gid < 1000 )); then
+        continue
+    fi
+    echo "${group}:${x}:${gid}:${users}" >> /newroot/etc/group
+done < /etc/group
+
+while IFS=: read username x uid gid fullname home shell; do
+    if (( uid < 1000 )); then
+        continue
+    fi
+    if [[ "$username" = nfsnobody ]]; then
+        continue
+    fi
+    echo "${username}:${x}:${uid}:${gid}:${fullname}:${home}:${shell}" >> /newroot/etc/passwd
+    cp -a "$home" "/newroot/${home}"
+done < /etc/passwd
+
+while IFS=: read login pwd datechange minage maxage warn inactivity expiration reserved; do
+    uid="$(id -u "$login")"
+    if (( uid == 0 )); then
+        sed -i "s%^root:.*%${login}:${pwd}:${datechange}:${minage}:${maxage}:${warn}:${inactivity}:${expiration}:${reserved}%" /newroot/etc/shadow
+        continue
+    fi
+    if (( uid < 1000 )); then
+        continue
+    fi
+    echo "${login}:${pwd}:${datechange}:${minage}:${maxage}:${warn}:${inactivity}:${expiration}:${reserved}" >> /newroot/etc/shadow
+done < /etc/shadow
+
+
+export DEBIAN_FRONTEND=noninteractive
+
+chroot /newroot apt-get -y install grub-pc-bin grub-pc
+chroot /newroot grub-install "$bootdisk"
+chroot /newroot apt-get -y install linux-image-5.4.0-1009-kvm
+chroot /newroot update-grub
+

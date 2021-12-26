@@ -1,0 +1,9 @@
+#!/bin/bash -e
+
+ssh \
+  -o port=2222 \
+  -o UserKnownHostsFile=/dev/null \
+  -o StrictHostKeyChecking=no \
+  -i ~/.ssh/id_rsa \
+  -A \
+  root@localhost
