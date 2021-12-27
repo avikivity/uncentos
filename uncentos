@@ -42,7 +42,7 @@ mkdir /newroot
 mount -t xfs "$part" /newroot
 
 mkdir -p /
-podman run --rm -v /newroot:/newroot --privileged docker.io/ubuntu:20.04 bash -c 'apt-get update && apt-get -y install debootstrap && debootstrap --variant minbase --include ssh,systemd,systemd-sysv,ubuntu-server,dbus-user-session,python3-cffi-backend,netbase,network-manager,cloud-initramfs-dyn-netconf,netplan.io,networkd-dispatcher,pciutils,isc-dhcp-client,net-tools focal /newroot'
+podman run --rm -v /newroot:/newroot --privileged docker.io/ubuntu:20.04 bash -c 'apt-get update && apt-get -y install debootstrap && debootstrap --variant minbase --include ssh,systemd,systemd-sysv,ubuntu-server,dbus-user-session,python3-cffi-backend,netbase,cloud-initramfs-dyn-netconf,netplan.io,networkd-dispatcher,pciutils,isc-dhcp-client,net-tools focal /newroot'
 extra_mounts=()
 
 echo "LABEL=ubuntu / xfs defaults 0 1" >> /newroot/etc/fstab
@@ -88,6 +88,13 @@ while IFS=: read login pwd datechange minage maxage warn inactivity expiration r
     echo "${login}:${pwd}:${datechange}:${minage}:${maxage}:${warn}:${inactivity}:${expiration}:${reserved}" >> /newroot/etc/shadow
 done < /etc/shadow
 
+cat > /newroot/etc/systemd/network/80-dhcp.network <<EOF
+[Match]
+Name=en*
+
+[Network]
+DHCP=yes
+EOF
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -95,4 +102,4 @@ chroot /newroot apt-get -y install grub-pc-bin grub-pc
 chroot /newroot grub-install "$bootdisk"
 chroot /newroot apt-get -y install linux-image-5.4.0-1009-kvm
 chroot /newroot update-grub
-
+chroot /newroot systemctl enable systemd-networkd
