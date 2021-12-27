@@ -3,6 +3,11 @@
 set -e
 set -o pipefail
 
+comma_separated() {
+    local IFS=,
+    echo "$*"
+}
+
 yum -y install podman parted gawk
 
 read bootdisk type < <(parted --list -m | awk -F: '/^\/dev/ { dev = $1 } $7 ~ /.*boot.*;/ { print dev, $5 }')
@@ -41,7 +46,25 @@ mkfs -t xfs -L ubuntu "$part"
 mkdir /newroot
 mount -t xfs "$part" /newroot
 
-podman run --rm -v /newroot:/newroot --privileged docker.io/ubuntu:20.04 bash -c 'apt-get update && apt-get -y install debootstrap && debootstrap --variant minbase --include ssh,systemd,systemd-sysv,ubuntu-server,dbus-user-session,python3-cffi-backend,netbase,cloud-initramfs-dyn-netconf,netplan.io,networkd-dispatcher,pciutils,isc-dhcp-client,net-tools focal /newroot'
+extra_package_list=(
+    ssh
+    systemd
+    systemd-sysv
+    ubuntu-server
+    dbus-user-session
+    python3-cffi-backend
+    netbase
+    cloud-initramfs-dyn-netconf
+    netplan.io
+    networkd-dispatcher
+    pciutils
+    isc-dhcp-client
+    net-tools
+)
+
+extra_packages="$(comma_separated "${extra_package_list[@]}")"
+
+podman run --rm -v /newroot:/newroot --privileged docker.io/ubuntu:20.04 bash -c "apt-get update && apt-get -y install debootstrap && debootstrap --variant minbase --include $extra_packages focal /newroot"
 extra_mounts=()
 
 echo "LABEL=ubuntu / xfs defaults 0 1" >> /newroot/etc/fstab
