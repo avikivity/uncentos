@@ -69,13 +69,6 @@ extra_mounts=()
 
 echo "LABEL=ubuntu / xfs defaults 0 1" >> /newroot/etc/fstab
 
-if (( $(stat --format=%d /boot) != $(stat --format=%d /) )); then
-    extra_mounts+=(boot)
-    # FIXME: add fstab entry
-else
-    cp -a /boot /newroot
-fi
-
 for d in proc sys dev "${extra_mounts[@]}"; do
     mount --rbind "/$d" "/newroot/$d"
 done 
