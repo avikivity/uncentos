@@ -3,12 +3,15 @@
 set -e
 set -o pipefail
 
+# return input words, but concatentatd using "," instead of spaces
 comma_separated() {
     local IFS=,
     echo "$*"
 }
 
 yum -y install podman parted gawk dmidecode
+
+# Figure out what disk we are booting from.
 
 read bootdisk type < <(parted --list -m | awk -F: '/^\/dev/ { dev = $1 } $7 ~ /.*boot.*;/ { print dev, $5 }')
 
@@ -19,6 +22,8 @@ fi
 
 echo "installing to $bootdisk (type $type)"
 
+# Figure out where the free space is on the boot disk
+
 read -r free_start free_end < <(parted -m "$bootdisk" unit s print free | { awk -F: '$5 == "free;" && int($4) > 2000000 { print $2, $3; exit 0 }'; echo; })
 
 if [[ -z "$free_end" ]]; then
@@ -26,10 +31,14 @@ if [[ -z "$free_end" ]]; then
     exit 1
 fi
 
+# GPT partition tables need a name field.
+
 name=
 if [[ "$type" = "gpt" ]]; then
     name=newsys
 fi
+
+# Create the new partition and find its name.
 
 parted -m "$bootdisk" mkpart primary $name xfs "$free_start" "$free_end"
 
@@ -41,10 +50,15 @@ echo "new partition is $part_nr"
 
 part="${bootdisk}${part_nr}"
 
+# Create a file system and mount it.
+
 mkfs -t xfs -L ubuntu "$part"
 
 mkdir /newroot
 mount -t xfs "$part" /newroot
+
+# Extra packages beyond what debootstrap provides. Strnagely ubuntu-server
+# isn't enough to have networking running.
 
 extra_package_list=(
     ssh
@@ -65,14 +79,25 @@ extra_package_list=(
 
 extra_packages="$(comma_separated "${extra_package_list[@]}")"
 
+# Invoke debootstrap to install Ubuntu 20.04. We invoke it via an Ubuntu
+# container (and not CentOS debootstrap) because CentOS debootstrap
+# is not able to install newer Ubuntu.
+
 podman run --rm -v /newroot:/newroot --privileged docker.io/ubuntu:20.04 bash -c "apt-get update && apt-get -y install debootstrap && debootstrap --variant minbase --include $extra_packages focal /newroot"
 extra_mounts=()
 
+# Create /etc/fstab in the new root partition
+
 echo "LABEL=ubuntu / xfs defaults 0 1" >> /newroot/etc/fstab
+
+# Bind-mound system filesystems so running system utilities in the chroot
+# works
 
 for d in proc sys dev "${extra_mounts[@]}"; do
     mount --rbind "/$d" "/newroot/$d"
 done 
+
+# Migrate groups, users in /etc/group, /etc/passed
 
 while IFS=: read group x gid users; do
     if (( gid < 1000 )); then
@@ -92,6 +117,8 @@ while IFS=: read username x uid gid fullname home shell; do
     cp -a "$home" "/newroot/${home}"
 done < /etc/passwd
 
+# Migrate passwords in /etc/shadow
+
 while IFS=: read login pwd datechange minage maxage warn inactivity expiration reserved; do
     uid="$(id -u "$login")"
     if (( uid == 0 )); then
@@ -104,6 +131,8 @@ while IFS=: read login pwd datechange minage maxage warn inactivity expiration r
     echo "${login}:${pwd}:${datechange}:${minage}:${maxage}:${warn}:${inactivity}:${expiration}:${reserved}" >> /newroot/etc/shadow
 done < /etc/shadow
 
+# Set up DHCP networking via systemd-networkd
+
 cat > /newroot/etc/systemd/network/80-dhcp.network <<EOF
 [Match]
 Name=en*
@@ -113,11 +142,15 @@ DHCP=yes
 EOF
 
 
+# Migrate sudo
+
 cp -a /etc/sudoers /etc/sudoers.d /newroot/etc
 
 cp -a /root /newroot
 
 export DEBIAN_FRONTEND=noninteractive
+
+# Figure out which kernel to install
 
 linux_image=linux-image-kvm
 
@@ -125,8 +158,13 @@ if dmidecode | grep -q amazon; then
     linux_image=linux-image-aws
 fi
 
+# Install the new kernel and update the boot loader
+
 chroot /newroot apt-get -y install grub-pc-bin grub-pc
 chroot /newroot grub-install "$bootdisk"
 chroot /newroot apt-get -y install "$linux_image"
 chroot /newroot update-grub
+
+# Enable networking
+
 chroot /newroot systemctl enable systemd-networkd
