@@ -115,6 +115,8 @@ EOF
 
 cp -a /etc/sudoers /etc/sudoers.d /newroot/etc
 
+cp -a /root /newroot
+
 export DEBIAN_FRONTEND=noninteractive
 
 linux_image=linux-image-kvm
