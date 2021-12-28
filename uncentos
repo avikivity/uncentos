@@ -60,6 +60,7 @@ extra_package_list=(
     pciutils
     isc-dhcp-client
     net-tools
+    sudo
 )
 
 extra_packages="$(comma_separated "${extra_package_list[@]}")"
@@ -110,6 +111,9 @@ Name=en*
 [Network]
 DHCP=yes
 EOF
+
+
+cp -a /etc/sudoers /etc/sudoers.d /newroot/etc
 
 export DEBIAN_FRONTEND=noninteractive
 
