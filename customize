@@ -1,5 +1,10 @@
 #!/bin/bash -e
 
+if [[ ! -f CentOS-7-x86_64-GenericCloud-2111.qcow2c ]]; then
+    echo "Downloading CentOS 7 image (first run only)"
+    curl --remote-name https://cloud.centos.org/altarch/7/images/CentOS-7-x86_64-GenericCloud-2111.qcow2c
+fi
+
 cp CentOS-7-x86_64-GenericCloud-2111.qcow2c centos7.qcow2
 
 virt-customize \
