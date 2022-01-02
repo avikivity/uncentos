@@ -15,7 +15,7 @@ virt-customize \
   --install sshfs \
   --append-line /root/mount:"sshfs -o StrictHostKeyChecking=no $USER@10.0.2.2:$PWD /mnt" \
   --chmod 0777:/root/mount \
-  --ssh-inject root:file:/home/avi/.ssh/id_rsa.pub \
+  --ssh-inject root:file:"$HOME/.ssh/id_rsa.pub" \
   --selinux-relabel
 
 qemu-img resize centos7.qcow2 +10G
