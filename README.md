@@ -35,5 +35,5 @@ running on Ubuntu 20.04 LTS, with all the data volumes intact.
 
  1. Run `./customize` to download a CentOS 7 image and prepare it for testing.
  2. Run `./run` to run the image using `qemu-kvm`.
- 3. Run `./connect` to ssh into the image. From there, you can run `./mount; cd mount` to access the host filesystem and run the `./uncentos` script, and reboot.
+ 3. Run `./connect` to ssh into the image. From there, you can run `./mount; cd /mnt` to access the host filesystem and run the `./uncentos` script, and reboot.
 
